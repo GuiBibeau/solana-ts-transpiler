@@ -1,0 +1,29 @@
+# AUTO-GENERATED - DO NOT EDIT
+[package]
+name = "vault_pinocchio"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+pinocchio = { version = "0.9", default-features = false }
+pinocchio-tkn = { version = "0.2.2" }
+
+[dev-dependencies]
+mollusk-svm = "0.10.1"
+mollusk-svm-programs-token = "0.10.1"
+litesvm = "0.9.1"
+solana-sdk = "3.0.0"
+solana-sdk-ids = "3.0.0"
+solana-program-pack = "3.0.0"
+solana-program-option = "3.0.0"
+solana-rent = "3.0.0"
+solana-keypair = "3.0.0"
+solana-message = "3.0.1"
+solana-signer = "3.0.0"
+solana-transaction = "3.0.0"
+solana-system-interface = "3.0.0"
+spl-token-interface = "2.0.0"

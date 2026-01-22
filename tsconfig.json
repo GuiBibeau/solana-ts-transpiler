@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@solana-ts-transpiler/sdk": ["packages/sdk/src/index.ts"]
+    }
+  },
+  "include": ["examples/**/*.ts"]
+}

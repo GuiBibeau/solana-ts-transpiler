@@ -1,0 +1,15 @@
+{
+  "name": "@solana-ts-transpiler/compiler",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "bin": {
+    "solana-ts-transpiler": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@solana-ts-transpiler/sdk": "0.1.0"
+  }
+}

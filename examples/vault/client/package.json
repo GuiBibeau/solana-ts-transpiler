@@ -1,0 +1,15 @@
+{
+  "name": "@solana-ts-transpiler/client",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "buffer": "^6.0.3"
+  },
+  "peerDependencies": {
+    "@solana/kit": "^5.0.0"
+  }
+}
