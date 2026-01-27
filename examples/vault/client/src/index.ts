@@ -55,7 +55,7 @@ export const VaultClient = {
       systemProgram: toAddress(systemProgram),
       underlyingMintArg: toAddress(args.underlyingMint),
       shareMintArg: toAddress(args.shareMint),
-    } as Parameters<typeof getCreateVaultInstruction>[0]);
+    } as unknown as Parameters<typeof getCreateVaultInstruction>[0]);
     return toWeb3Instruction(instruction, [
       { pubkey: accounts.payer, isSigner: true, isWritable: true },
       { pubkey: accounts.vault, isSigner: false, isWritable: true },
@@ -91,7 +91,7 @@ export const VaultClient = {
       userShares: toAddress(accounts.userShares),
       tokenProgram: toAddress(accounts.tokenProgram),
       amount: args.amount,
-    } as Parameters<typeof getDepositInstruction>[0]);
+    } as unknown as Parameters<typeof getDepositInstruction>[0]);
     return toWeb3Instruction(instruction, [
       { pubkey: accounts.user, isSigner: true, isWritable: false },
       { pubkey: accounts.vault, isSigner: false, isWritable: true },
@@ -127,7 +127,7 @@ export const VaultClient = {
       vaultUnderlying: toAddress(accounts.vaultUnderlying),
       tokenProgram: toAddress(accounts.tokenProgram),
       shares: args.shares,
-    } as Parameters<typeof getWithdrawInstruction>[0]);
+    } as unknown as Parameters<typeof getWithdrawInstruction>[0]);
     return toWeb3Instruction(instruction, [
       { pubkey: accounts.user, isSigner: true, isWritable: false },
       { pubkey: accounts.vault, isSigner: false, isWritable: true },

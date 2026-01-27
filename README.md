@@ -15,6 +15,9 @@ vault.ts  →  compiler  →  IR  →  gen-pinocchio  →  Rust program
 
 ## Examples
 
+- `examples/vault/vault.ts` — Simple vault with deposits and share minting.
+- `examples/amm/amm.ts` — Simple constant product AMM with swaps and LP shares.
+
 ### Define an Account
 
 ```typescript

@@ -310,7 +310,7 @@ const renderIxBuilder = (ix: IrInstruction) => {
     ${usesSystemProgram ? 'const systemProgram = accounts.systemProgram ?? SystemProgram.programId;' : ''}
     const instruction = ${instructionFn}({
 ${inputLines.join('\n')}
-    } as Parameters<typeof ${instructionFn}>[0]);
+    } as unknown as Parameters<typeof ${instructionFn}>[0]);
     return toWeb3Instruction(instruction, [
 ${keys}
     ]);

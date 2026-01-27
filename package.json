@@ -10,12 +10,18 @@
   ],
   "scripts": {
     "build:ir": "bun run packages/compiler/src/cli.ts examples/vault/vault.ts dist/ir/vault.json",
+    "build:ir:amm": "bun run packages/compiler/src/cli.ts examples/amm/amm.ts dist/ir/amm.json",
     "gen:pinocchio": "bun run packages/gen-pinocchio/src/index.ts dist/ir/vault.json examples/vault/vault-pinocchio",
+    "gen:pinocchio:amm": "bun run packages/gen-pinocchio/src/index.ts dist/ir/amm.json examples/amm/amm-pinocchio",
     "gen:client": "bun run packages/gen-client/src/index.ts dist/ir/vault.json examples/vault/client",
     "generate": "bun run build:ir && bun run gen:pinocchio && bun run gen:client",
     "build:program": "cargo build-sbf --manifest-path examples/vault/vault-pinocchio/Cargo.toml",
+    "build:program:amm": "cargo build-sbf --manifest-path examples/amm/amm-pinocchio/Cargo.toml",
     "test:mollusk": "bun run build:program && cargo test --manifest-path examples/vault/vault-pinocchio/Cargo.toml --test deposit_mollusk",
+    "test:mollusk:amm": "bun run build:program:amm && cargo test --manifest-path examples/amm/amm-pinocchio/Cargo.toml --test swap_mollusk",
     "test:litesvm": "bun run build:program && cargo test --manifest-path examples/vault/vault-pinocchio/Cargo.toml --test e2e_litesvm",
+    "test:litesvm:amm": "bun run build:program:amm && cargo test --manifest-path examples/amm/amm-pinocchio/Cargo.toml --test e2e_litesvm",
+    "test:transpiler": "bun run --filter @solana-ts-transpiler/transpiler-integration test",
     "dev:app": "bun run --filter vault-demo dev",
     "build:app": "bun run --filter vault-demo build"
   },

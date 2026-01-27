@@ -1,0 +1,11 @@
+{
+  "name": "@solana-ts-transpiler/transpiler-integration",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@solana-ts-transpiler/compiler": "0.1.0"
+  }
+}

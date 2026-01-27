@@ -10,12 +10,44 @@ if (!irPath || !outDir) {
 const irRaw = await fs.readFile(irPath, 'utf8');
 const ir = JSON.parse(irRaw);
 
+const programName = ir.name as string;
 const instructions = ir.instructions as Array<any>;
 const accounts = ir.accounts as Record<string, any>;
 
-const vaultAccount = accounts.vault;
-if (!vaultAccount) {
-  throw new Error('Expected vault account definition in IR.');
+const resolveStateAccountKey = () => {
+  const stateAccounts = new Set<string>();
+  instructions.forEach((ix) => {
+    (ix.ops as Array<any>).forEach((op) => {
+      if (op.op === 'state.init' || op.op === 'state.update') {
+        if (typeof op.account === 'string') stateAccounts.add(op.account);
+      }
+    });
+  });
+
+  if (stateAccounts.size > 1) {
+    throw new Error(`Multiple state accounts are not supported: ${[...stateAccounts].join(', ')}`);
+  }
+
+  if (stateAccounts.size === 1) {
+    const [key] = [...stateAccounts];
+    if (!accounts[key]) {
+      throw new Error(`State account ${key} referenced in ops but not defined.`);
+    }
+    return key;
+  }
+
+  const accountKeys = Object.keys(accounts);
+  if (accountKeys.length === 1) {
+    return accountKeys[0]!;
+  }
+
+  throw new Error('Unable to infer state account. Add a state.init/state.update op.');
+};
+
+const stateAccountKey = resolveStateAccountKey();
+const stateAccount = accounts[stateAccountKey];
+if (!stateAccount) {
+  throw new Error(`Expected state account ${stateAccountKey} definition in IR.`);
 }
 
 const getInitAccounts = (ix: any) =>
@@ -42,6 +74,10 @@ const toPascal = (input: string) =>
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join('');
 
+const stateStructName = stateAccount.name ?? `${toPascal(stateAccountKey)}State`;
+const stateAccountVar = toSnake(stateAccountKey);
+const stateVarName = `${stateAccountVar}_state`;
+
 const renderRustType = (type: any) => {
   if (type.kind === 'u64') return 'u64';
   if (type.kind === 'u8') return 'u8';
@@ -49,7 +85,7 @@ const renderRustType = (type: any) => {
   throw new Error(`Unsupported type: ${type.kind}`);
 };
 
-const fieldNames = Object.keys(vaultAccount.schema);
+const fieldNames = Object.keys(stateAccount.schema);
 const fieldMap = new Map(fieldNames.map((name) => [name, toSnake(name)]));
 
 const exprToRust = (expr: any): string => {
@@ -59,7 +95,7 @@ const exprToRust = (expr: any): string => {
     case 'arg':
       return `args.${toSnake(expr.name)}`;
     case 'field':
-      return `vault_state.${fieldMap.get(expr.name)}`;
+      return `${stateVarName}.${fieldMap.get(expr.name)}`;
     case 'add':
       return `checked_add(${exprToRust(expr.left)}, ${exprToRust(expr.right)})?`;
     case 'sub':
@@ -89,7 +125,7 @@ const initValueToRust = (value: any, fieldType: any): string => {
     return `*${toSnake(value.name)}.key()`;
   }
   if (value.kind === 'field') {
-    return `vault_state.${fieldMap.get(value.name)}`;
+    return `${stateVarName}.${fieldMap.get(value.name)}`;
   }
   if (value.kind === 'bump') {
     return `${toSnake(value.account)}_bump`;
@@ -155,7 +191,7 @@ const seedExpr = (seed: any) => {
     return `${toSnake(seed.name)}.key().as_ref()`;
   }
   if (seed.kind === 'field') {
-    return `vault_state.${fieldMap.get(seed.name)}.as_ref()`;
+    return `${stateVarName}.${fieldMap.get(seed.name)}.as_ref()`;
   }
   throw new Error(`Unsupported seed kind: ${seed.kind}`);
 };
@@ -237,12 +273,12 @@ const renderSignerInit = (ix: any) => {
 const renderOps = (ix: any) => {
   const ops = ix.ops as Array<any>;
   const lines: string[] = [];
-  let vaultStateLoaded = false;
+  let stateLoaded = false;
 
-  const ensureVaultState = () => {
-    if (!vaultStateLoaded) {
-      lines.push('let mut vault_state = VaultState::load(vault)?;');
-      vaultStateLoaded = true;
+  const ensureStateLoaded = () => {
+    if (!stateLoaded) {
+      lines.push(`let mut ${stateVarName} = ${stateStructName}::load(${stateAccountVar})?;`);
+      stateLoaded = true;
     }
   };
 
@@ -279,23 +315,23 @@ const renderOps = (ix: any) => {
           lines.push(`    let ${initVar}_bump_ref = [${initVar}_bump];`);
           lines.push(`    let ${initVar}_seeds = seeds!(${seedExprs}, &${initVar}_bump_ref);`);
           lines.push(`    let ${initVar}_signer = Signer::from(&${initVar}_seeds);`);
-          lines.push(`    create_program_account(${payerVar}, ${initVar}, program_id, VaultState::LEN, Some(&${initVar}_signer))?;`);
+          lines.push(`    create_program_account(${payerVar}, ${initVar}, program_id, ${stateStructName}::LEN, Some(&${initVar}_signer))?;`);
         } else {
-          lines.push(`    create_program_account(${payerVar}, ${initVar}, program_id, VaultState::LEN, None)?;`);
+          lines.push(`    create_program_account(${payerVar}, ${initVar}, program_id, ${stateStructName}::LEN, None)?;`);
         }
         lines.push('}');
         lines.push(`if !${initVar}.is_owned_by(program_id) { return Err(ProgramError::IncorrectProgramId); }`);
-        ensureVaultState();
+        ensureStateLoaded();
         Object.entries(op.fields).forEach(([fieldName, value]) => {
-          const fieldType = vaultAccount.schema[fieldName];
+          const fieldType = stateAccount.schema[fieldName];
           const rustField = fieldMap.get(fieldName);
-          lines.push(`vault_state.${rustField} = ${initValueToRust(value, fieldType)};`);
+          lines.push(`${stateVarName}.${rustField} = ${initValueToRust(value, fieldType)};`);
         });
-        lines.push('VaultState::store(vault, &vault_state)?;');
+        lines.push(`${stateStructName}::store(${stateAccountVar}, &${stateVarName})?;`);
         break;
       }
       case 'state.update': {
-        ensureVaultState();
+        ensureStateLoaded();
         const updates = Object.entries(op.fields);
         updates.forEach(([fieldName, expr]) => {
           const rustField = fieldMap.get(fieldName);
@@ -303,33 +339,33 @@ const renderOps = (ix: any) => {
         });
         updates.forEach(([fieldName]) => {
           const rustField = fieldMap.get(fieldName);
-          lines.push(`vault_state.${rustField} = next_${rustField};`);
+          lines.push(`${stateVarName}.${rustField} = next_${rustField};`);
         });
-        lines.push('VaultState::store(vault, &vault_state)?;');
+        lines.push(`${stateStructName}::store(${stateAccountVar}, &${stateVarName})?;`);
         break;
       }
       case 'token.transfer': {
-        ensureVaultState();
+        ensureStateLoaded();
         if (op.signer) {
           const signerVar = `${toSnake(op.signer)}_signer`;
-          lines.push(`Transfer {\n        source: ${toSnake(op.from)},\n        destination: ${toSnake(op.to)},\n        authority: ${toSnake(op.authority)},\n        amount: ${exprToRust(op.amount)},\n        program_id: Some(${toSnake(op.program ?? 'tokenProgram')}.key()),\n    }.invoke_signed(&[${signerVar}])?;`);
+          lines.push(`Transfer {\n        source: ${toSnake(op.from)},\n        destination: ${toSnake(op.to)},\n        authority: ${toSnake(op.authority)},\n        amount: ${exprToRust(op.amount)},\n        program_id: Some(${toSnake(op.program ?? 'tokenProgram')}.key()),\n    }.invoke_signed(&[${signerVar}.clone()])?;`);
         } else {
           lines.push(`Transfer {\n        source: ${toSnake(op.from)},\n        destination: ${toSnake(op.to)},\n        authority: ${toSnake(op.authority)},\n        amount: ${exprToRust(op.amount)},\n        program_id: Some(${toSnake(op.program ?? 'tokenProgram')}.key()),\n    }.invoke()?;`);
         }
         break;
       }
       case 'token.mintTo': {
-        ensureVaultState();
+        ensureStateLoaded();
         if (op.signer) {
           const signerVar = `${toSnake(op.signer)}_signer`;
-          lines.push(`MintTo {\n        mint: ${toSnake(op.mint)},\n        destination: ${toSnake(op.to)},\n        authority: ${toSnake(op.authority)},\n        amount: ${exprToRust(op.amount)},\n        program_id: Some(${toSnake(op.program ?? 'tokenProgram')}.key()),\n    }.invoke_signed(&[${signerVar}])?;`);
+          lines.push(`MintTo {\n        mint: ${toSnake(op.mint)},\n        destination: ${toSnake(op.to)},\n        authority: ${toSnake(op.authority)},\n        amount: ${exprToRust(op.amount)},\n        program_id: Some(${toSnake(op.program ?? 'tokenProgram')}.key()),\n    }.invoke_signed(&[${signerVar}.clone()])?;`);
         } else {
           lines.push(`MintTo {\n        mint: ${toSnake(op.mint)},\n        destination: ${toSnake(op.to)},\n        authority: ${toSnake(op.authority)},\n        amount: ${exprToRust(op.amount)},\n        program_id: Some(${toSnake(op.program ?? 'tokenProgram')}.key()),\n    }.invoke()?;`);
         }
         break;
       }
       case 'token.burn': {
-        ensureVaultState();
+        ensureStateLoaded();
         lines.push(`Burn {\n        source: ${toSnake(op.from)},\n        mint: ${toSnake(op.mint)},\n        authority: ${toSnake(op.authority)},\n        amount: ${exprToRust(op.amount)},\n        program_id: Some(${toSnake(op.program ?? 'tokenProgram')}.key()),\n    }.invoke()?;`);
         break;
       }
@@ -349,21 +385,21 @@ const renderInstructionHandler = (ix: any) => {
   const ops = renderOps(ix);
   const ownerCheck = hasStateInit(ix)
     ? ''
-    : '    // Vault must be owned by this program\n    if !vault.is_owned_by(program_id) {\n        return Err(ProgramError::IncorrectProgramId);\n    }\n';
+    : `    // State account must be owned by this program\n    if !${stateAccountVar}.is_owned_by(program_id) {\n        return Err(ProgramError::IncorrectProgramId);\n    }\n`;
 
   return `\n${argsStruct}
 ${argsDecoder}
 fn handle_${toSnake(ix.name)}(\n    program_id: &Pubkey,\n    accounts: &[AccountInfo],\n    data: &[u8],\n) -> ProgramResult {\n    if accounts.len() < ${ix.accounts.length} {\n        return Err(ProgramError::NotEnoughAccountKeys);\n    }\n    let args = decode_${toSnake(ix.name)}_args(data)?;\n    ${accountChecks}\n    ${signerInit}\n${ownerCheck}    ${ops}\n    Ok(())\n}\n`;
 };
 
-const renderVaultState = () => {
-  const fields = Object.entries(vaultAccount.schema)
+const renderStateStruct = () => {
+  const fields = Object.entries(stateAccount.schema)
     .map(([name, type]) => `    pub ${fieldMap.get(name)}: ${renderRustType(type)},`)
     .join('\n');
 
   const readFields: string[] = [];
   let offset = 0;
-  Object.entries(vaultAccount.schema).forEach(([name, type]) => {
+  Object.entries(stateAccount.schema).forEach(([name, type]) => {
     const rustField = fieldMap.get(name);
     if (type.kind === 'pubkey') {
       readFields.push(`let ${rustField} = read_pubkey(&data, ${offset})?;`);
@@ -379,7 +415,7 @@ const renderVaultState = () => {
 
   const writeFields: string[] = [];
   let writeOffset = 0;
-  Object.entries(vaultAccount.schema).forEach(([name, type]) => {
+  Object.entries(stateAccount.schema).forEach(([name, type]) => {
     const rustField = fieldMap.get(name);
     if (type.kind === 'pubkey') {
       writeFields.push(`write_pubkey(&mut data, ${writeOffset}, &state.${rustField})?;`);
@@ -394,11 +430,11 @@ const renderVaultState = () => {
   });
 
   return `#[derive(Clone, Copy)]
-struct VaultState {
+struct ${stateStructName} {
 ${fields}
 }
 
-impl VaultState {
+impl ${stateStructName} {
     const LEN: usize = ${writeOffset};
 
     fn load(account: &AccountInfo) -> Result<Self, ProgramError> {
@@ -408,7 +444,7 @@ impl VaultState {
         }
         ${readFields.join('\n        ')}
         Ok(Self {
-${Object.keys(vaultAccount.schema).map((name) => `            ${fieldMap.get(name)},`).join('\n')}
+${Object.keys(stateAccount.schema).map((name) => `            ${fieldMap.get(name)},`).join('\n')}
         })
     }
 
@@ -525,7 +561,7 @@ fn panic_handler(_info: &core::panic::PanicInfo<'_>) -> ! {
 #[cfg(not(target_arch = "bpf"))]
 extern crate std;
 
-${renderVaultState()}
+${renderStateStruct()}
 
 ${initHelpers}
 
@@ -639,9 +675,11 @@ ${handlers}
 `;
 };
 
+const crateName = `${toSnake(programName)}_pinocchio`;
+
 const cargoToml = `# AUTO-GENERATED - DO NOT EDIT
 [package]
-name = "vault_pinocchio"
+name = "${crateName}"
 version = "0.1.0"
 edition = "2021"
 publish = false
